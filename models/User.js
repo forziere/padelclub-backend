@@ -1,22 +1,44 @@
 import mongoose from 'mongoose';
 
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, enum: ['user', 'admin'], default: 'user' },
-  prenotazioni: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Prenotazione' }]
-});
-
-// Hash password prima di salvare
-userSchema.pre('save', async function(next) {
-  if (this.isModified('password')) {
-    this.password = await bcrypt.hash(this.password, 10);
+  name: {
+    type: String,
+    required: [true, 'Il nome è obbligatorio'],
+    trim: true,
+    minlength: [2, 'Il nome deve essere di almeno 2 caratteri'],
+    maxlength: [50, 'Il nome non può superare 50 caratteri']
+  },
+  email: {
+    type: String,
+    required: [true, 'L\'email è obbligatoria'],
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Email non valida']
+  },
+  passwordHash: {
+    type: String,
+    required: [true, 'La password è obbligatoria']
+  },
+  credit: {
+    type: Number,
+    default: 0,
+    min: [0, 'Il credito non può essere negativo']
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false
+  },
+  isActive: {
+    type: Boolean,
+    default: true
   }
-  next();
+}, {
+  timestamps: true
 });
 
-module.exports = mongoose.model('User', userSchema);
+// Indici per performance
+userSchema.index({ email: 1 });
+userSchema.index({ isAdmin: 1 });
+
+export default mongoose.model('User', userSchema);
