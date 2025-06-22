@@ -1,11 +1,22 @@
 import mongoose from 'mongoose';
 
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
 const userSchema = new mongoose.Schema({
-  name: String,
-  email: { type: String, unique: true },
-  passwordHash: String,
-  credit: { type: Number, default: 0 },
-  isAdmin: { type: Boolean, default: false }
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  prenotazioni: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Prenotazione' }]
 });
 
-export default mongoose.model('User', userSchema);
+// Hash password prima di salvare
+userSchema.pre('save', async function(next) {
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+  next();
+});
+
+module.exports = mongoose.model('User', userSchema);
