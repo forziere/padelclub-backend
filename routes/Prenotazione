@@ -1,0 +1,19 @@
+import express from 'express';
+import { body, validationResult } from 'express-validator';
+import Prenotazione from '../models/Prenotazione.js';
+import Campo from '../models/Campo.js';
+import User from '../models/User.js';
+import auth from '../middleware/auth.js';
+
+const router = express.Router();
+
+// Validatori
+const prenotazioneValidation = [
+  body('campoId').isMongoId().withMessage('ID campo non valido'),
+  body('data').isISO8601().withMessage('Data non valida'),
+  body('orario').matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Formato orario non valido (HH:MM)'),
+  body('giocatori').isArray({ min: 1, max: 4 }).withMessage('Deve esserci tra 1 e 4 giocatori')
+];
+
+// Crea prenotazione
+router.post('/', auth, prenotazioneValidation, async (req, res) => {
