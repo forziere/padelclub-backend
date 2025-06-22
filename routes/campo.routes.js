@@ -1,177 +1,124 @@
 import express from 'express';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
-import User from '../models/User.js';
+import Campo from '../models/Campo.js';
 import auth from '../middleware/auth.js';
 import checkAdmin from '../middleware/checkAdmin.js';
 
 const router = express.Router();
 
 // Validatori
-const registerValidation = [
-  body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Nome deve essere tra 2 e 50 caratteri'),
-  body('email').isEmail().normalizeEmail().withMessage('Email non valida'),
-  body('password').isLength({ min: 6 }).withMessage('Password deve essere di almeno 6 caratteri')
+const campoValidation = [
+  body('nome').trim().isLength({ min: 2, max: 50 }).withMessage('Nome deve essere tra 2 e 50 caratteri'),
+  body('orariDisponibili').isArray({ min: 1 }).withMessage('Deve esserci almeno un orario disponibile'),
+  body('orariDisponibili.*').matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Formato orario non valido (HH:MM)'),
+  body('costo').isNumeric().isFloat({ min: 0 }).withMessage('Il costo deve essere un numero positivo')
 ];
 
-const loginValidation = [
-  body('email').isEmail().normalizeEmail().withMessage('Email non valida'),
-  body('password').notEmpty().withMessage('Password obbligatoria')
-];
-
-// Registrazione
-router.post('/register', registerValidation, async (req, res) => {
+// Crea un nuovo campo (solo admin)
+router.post('/', auth, checkAdmin, campoValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, email, password } = req.body;
+    const { nome, orariDisponibili, costo } = req.body;
     
-    // Controlla se utente esiste già
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ error: 'Email già registrata' });
+    // Verifica che il nome non esista già
+    const campoEsistente = await Campo.findOne({ nome });
+    if (campoEsistente) {
+      return res.status(400).json({ error: 'Esiste già un campo con questo nome' });
     }
     
-    // Hash password
-    const salt = await bcrypt.genSalt(12);
-    const passwordHash = await bcrypt.hash(password, salt);
-    
-    // Crea utente
-    const user = new User({
-      name,
-      email,
-      passwordHash
-    });
-    
-    await user.save();
-    
-    // Genera token
-    const token = jwt.sign(
-      { userId: user._id, isAdmin: user.isAdmin },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const campo = new Campo({ nome, orariDisponibili, costo });
+    await campo.save();
     
     res.status(201).json({
-      message: 'Utente creato con successo',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        credit: user.credit,
-        isAdmin: user.isAdmin
-      }
+      message: 'Campo creato con successo',
+      campo
     });
     
   } catch (error) {
-    console.error('Errore registrazione:', error);
+    console.error('Errore creazione campo:', error);
     if (error.code === 11000) {
-      return res.status(400).json({ error: 'Email già registrata' });
+      return res.status(400).json({ error: 'Nome campo già esistente' });
     }
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
 
-// Login
-router.post('/login', loginValidation, async (req, res) => {
+// Lista tutti i campi
+router.get('/', async (req, res) => {
+  try {
+    const campi = await Campo.find().sort({ nome: 1 });
+    res.json(campi);
+  } catch (error) {
+    console.error('Errore recupero campi:', error);
+    res.status(500).json({ error: 'Errore interno del server' });
+  }
+});
+
+// Ottieni un campo specifico
+router.get('/:id', async (req, res) => {
+  try {
+    const campo = await Campo.findById(req.params.id);
+    if (!campo) {
+      return res.status(404).json({ error: 'Campo non trovato' });
+    }
+    res.json(campo);
+  } catch (error) {
+    console.error('Errore recupero campo:', error);
+    res.status(500).json({ error: 'Errore interno del server' });
+  }
+});
+
+// Aggiorna un campo (solo admin)
+router.put('/:id', auth, checkAdmin, campoValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password } = req.body;
+    const { nome, orariDisponibili, costo } = req.body;
     
-    // Trova utente
-    const user = await User.findOne({ email, isActive: true });
-    if (!user) {
-      return res.status(400).json({ error: 'Credenziali non valide' });
-    }
-    
-    // Verifica password
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!isValidPassword) {
-      return res.status(400).json({ error: 'Credenziali non valide' });
-    }
-    
-    // Genera token
-    const token = jwt.sign(
-      { userId: user._id, isAdmin: user.isAdmin },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+    const campo = await Campo.findByIdAndUpdate(
+      req.params.id,
+      { nome, orariDisponibili, costo },
+      { new: true, runValidators: true }
     );
     
+    if (!campo) {
+      return res.status(404).json({ error: 'Campo non trovato' });
+    }
+    
     res.json({
-      message: 'Login effettuato con successo',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        credit: user.credit,
-        isAdmin: user.isAdmin
-      }
+      message: 'Campo aggiornato con successo',
+      campo
     });
     
   } catch (error) {
-    console.error('Errore login:', error);
+    console.error('Errore aggiornamento campo:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Nome campo già esistente' });
+    }
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
 
-// Profilo utente
-router.get('/profile', auth, async (req, res) => {
+// Elimina un campo (solo admin)
+router.delete('/:id', auth, checkAdmin, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-passwordHash');
-    if (!user) {
-      return res.status(404).json({ error: 'Utente non trovato' });
+    const campo = await Campo.findByIdAndDelete(req.params.id);
+    
+    if (!campo) {
+      return res.status(404).json({ error: 'Campo non trovato' });
     }
     
-    res.json(user);
+    res.json({ message: 'Campo eliminato con successo' });
+    
   } catch (error) {
-    console.error('Errore recupero profilo:', error);
-    res.status(500).json({ error: 'Errore interno del server' });
-  }
-});
-
-// Lista utenti (solo admin)
-router.get('/', auth, checkAdmin, async (req, res) => {
-  try {
-    const users = await User.find({ isActive: true }).select('-passwordHash');
-    res.json(users);
-  } catch (error) {
-    console.error('Errore recupero utenti:', error);
-    res.status(500).json({ error: 'Errore interno del server' });
-  }
-});
-
-// Aggiorna credito utente (solo admin)
-router.patch('/:id/credit', auth, checkAdmin, async (req, res) => {
-  try {
-    const { credit } = req.body;
-    
-    if (typeof credit !== 'number' || credit < 0) {
-      return res.status(400).json({ error: 'Credito deve essere un numero positivo' });
-    }
-    
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { credit },
-      { new: true, select: '-passwordHash' }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ error: 'Utente non trovato' });
-    }
-    
-    res.json({ message: 'Credito aggiornato', user });
-  } catch (error) {
-    console.error('Errore aggiornamento credito:', error);
+    console.error('Errore eliminazione campo:', error);
     res.status(500).json({ error: 'Errore interno del server' });
   }
 });
